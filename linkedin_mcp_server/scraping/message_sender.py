@@ -296,6 +296,11 @@ _MESSAGE_COMPOSER_INSPECT_JS = r"""
         const localScope = localScopes.find(scope => submitButtons(scope).length > 0)
             || localScopes[0];
         const buttons = submitButtons(localScope);
+        // With LinkedIn's "Press Enter to Send" preference the composer
+        // renders no Send button, only the send-options toggle.
+        const enterToSend = buttons.length === 0 && localScopes.some(scope =>
+            Array.from(scope.querySelectorAll('.msg-form__send-toggle')).some(visible)
+        );
         return {
             status: 'valid',
             editor,
@@ -303,10 +308,32 @@ _MESSAGE_COMPOSER_INSPECT_JS = r"""
             localScope,
             owner,
             buttons,
+            enterToSend,
             active: document.activeElement === editor,
             empty: !(editor.innerText || '').replace(/\s+/g, ' ').trim(),
             messageRoute: messageRoute(target),
         };
+    };
+    // The element whose subtree holds this conversation's message list. An
+    // overlay dialog holds both the list and the composer. On the full
+    // messaging page the owner is the composer <form> and the list is its
+    // sibling, so climb to the nearest ancestor that holds a message list,
+    // one editor, and stays below <main>. Otherwise keep the owner, which
+    // leaves the send unconfirmed rather than widening the scope.
+    const threadScope = owner => {
+        if (!owner || owner.matches('dialog, [role="dialog"]')) return owner;
+        const lists =
+            '.msg-s-message-list, [data-view-name="message-list-item"]';
+        let ancestor = owner.parentElement;
+        while (ancestor && !ancestor.matches('main, body')) {
+            const editors = ancestor.querySelectorAll(
+                '[role="textbox"][contenteditable="true"]'
+            );
+            if (editors.length !== 1) return owner;
+            if (ancestor.querySelector(lists)) return ancestor;
+            ancestor = ancestor.parentElement;
+        }
+        return owner;
     };
 """
 
@@ -391,6 +418,7 @@ _MESSAGE_CONFIRMATION_PREPARE_JS = (
         pinned.editor.setAttribute('data-linkedin-mcp-editor', token);
         const state = {
             owner: arg.owner,
+            scope: threadScope(arg.owner),
             editor: pinned.editor,
             expected: arg.expected,
             baseline: new Set(),
@@ -435,7 +463,7 @@ _MESSAGE_CONFIRMATION_PREPARE_JS = (
             for (const [node, candidate] of state.candidates) {
                 if (
                     node.isConnected &&
-                    state.owner.contains(node) &&
+                    state.scope.contains(node) &&
                     exactUnit(node, true)
                 ) {
                     candidate.matched = true;
@@ -501,7 +529,7 @@ _MESSAGE_CONFIRMATION_PREPARE_JS = (
         state.baseline = new Set(
             document.querySelectorAll('[data-view-name="message-list-item"]')
         );
-        state.observer.observe(state.owner, {
+        state.observer.observe(state.scope, {
             attributes: true,
             attributeFilter: ['data-event-urn'],
             attributeOldValue: true,
@@ -555,7 +583,7 @@ _MESSAGE_CONFIRMATION_READY_JS = (
             ).length === 1;
         };
         const candidates = Array.from(
-            arg.owner.querySelectorAll('[data-linkedin-mcp-candidate]')
+            threadScope(arg.owner).querySelectorAll('[data-linkedin-mcp-candidate]')
         ).filter(node =>
             node.getAttribute('data-linkedin-mcp-candidate') === arg.token &&
             node.getAttribute('data-linkedin-mcp-matched') === arg.token &&
@@ -572,7 +600,7 @@ _MESSAGE_CONFIRMATION_DISPOSE_JS = r"""arg => {
     const state = confirmations?.get(arg.token);
     if (state?.observer) state.observer.disconnect();
     confirmations?.delete(arg.token);
-    for (const element of arg.owner?.querySelectorAll(
+    for (const element of (state?.scope || arg.owner)?.querySelectorAll(
         '[data-linkedin-mcp-candidate], [data-linkedin-mcp-editor], '
         + '[data-linkedin-mcp-confirmation]'
     ) || []) {
@@ -594,18 +622,23 @@ _MESSAGE_CONFIRMATION_DISPOSE_JS = r"""arg => {
 
 _MESSAGE_COMPOSER_DISPOSE_JS = r"""owner => {
     const confirmations = owner?.__linkedinMcpConfirmations;
+    const scopes = new Set([owner]);
     for (const state of confirmations?.values() || []) {
         if (state?.observer) state.observer.disconnect();
+        if (state?.scope) scopes.add(state.scope);
     }
     confirmations?.clear();
     if (owner) {
         delete owner.__linkedinMcpConfirmations;
         delete owner.__linkedinMcpComposer;
     }
-    for (const element of owner?.querySelectorAll(
-        '[data-linkedin-mcp-candidate], [data-linkedin-mcp-editor], '
-        + '[data-linkedin-mcp-confirmation]'
-    ) || []) {
+    const marked = Array.from(scopes).flatMap(scope => Array.from(
+        scope?.querySelectorAll(
+            '[data-linkedin-mcp-candidate], [data-linkedin-mcp-editor], '
+            + '[data-linkedin-mcp-confirmation]'
+        ) || []
+    ));
+    for (const element of new Set(marked)) {
         element.removeAttribute('data-linkedin-mcp-candidate');
         element.removeAttribute('data-linkedin-mcp-matched');
         element.removeAttribute('data-linkedin-mcp-transitioned');
@@ -624,6 +657,7 @@ _MESSAGE_COMPOSER_STATE_JS = (
             active: state.active === true,
             empty: state.empty === true,
             submitCount: state.buttons ? state.buttons.length : 0,
+            enterToSend: state.enterToSend === true,
             submitUsable: state.buttons?.length === 1 &&
                 !state.buttons[0].disabled &&
                 (state.buttons[0].getAttribute('aria-disabled') || '').toLowerCase()
@@ -1017,6 +1051,19 @@ def _profile_urn_from_compose_url(value: str, *, base: str | None = None) -> str
     if len(identifiers) != 1:
         return None
     return identifiers.pop()
+
+
+def _enter_to_send_result(url: str) -> dict[str, Any]:
+    """Report LinkedIn's "Press Enter to Send" preference as a user fix."""
+    return contracts.message_action_result(
+        url,
+        "enter_to_send_enabled",
+        "LinkedIn is set to 'Press Enter to Send', which hides the Send "
+        "button this tool clicks. In LinkedIn Messaging, open the '...' menu "
+        "next to 'Press Enter to Send', choose 'Click Send to send', then "
+        "retry. Nothing was sent.",
+        recipient_selected=True,
+    )
 
 
 def _message_page_url_is_safe(value: str, profile_urn: str) -> bool:
@@ -1500,6 +1547,8 @@ class MessageSender:
                 "The local composer did not identify exactly the requested profile.",
             )
         recipient_selected = True
+        if state.get("enterToSend") is True:
+            return _enter_to_send_result(self._page.url)
 
         if not confirm_send:
             return contracts.message_action_result(
@@ -1541,6 +1590,8 @@ class MessageSender:
                 "The verified message composer changed before text entry.",
                 recipient_selected=recipient_selected,
             )
+        if state.get("enterToSend") is True:
+            return _enter_to_send_result(self._page.url)
         if state.get("submitCount") != 1:
             return contracts.message_action_result(
                 self._page.url,
