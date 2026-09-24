@@ -256,7 +256,7 @@
       "call": "send_message",
       "kind": "evaluate",
       "operation": "message_confirmation_prepare",
-      "program_digest": "dfef1fd012bf",
+      "program_digest": "b880e1cb8bc0",
       "section": "message"
     },
     {
@@ -285,7 +285,7 @@
       "call": "send_message",
       "kind": "wait_for_function",
       "operation": "message_confirmation_ready",
-      "program_digest": "81fb5f4305be",
+      "program_digest": "ae5b75d6e130",
       "section": "message",
       "timeout_ms": null
     },

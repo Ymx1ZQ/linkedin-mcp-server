@@ -529,6 +529,13 @@ _MESSAGE_CONFIRMATION_PREPARE_JS = (
         state.baseline = new Set(
             document.querySelectorAll('[data-view-name="message-list-item"]')
         );
+        // Kept as an attribute: the readiness check runs in another world,
+        // where properties set on elements here are not visible.
+        marker.setAttribute('data-linkedin-mcp-baseline', JSON.stringify(
+            Array.from(state.baseline)
+                .map(node => (node.getAttribute('data-event-urn') || '').trim())
+                .filter(Boolean)
+        ));
         state.observer.observe(state.scope, {
             attributes: true,
             attributeFilter: ['data-event-urn'],
@@ -548,28 +555,6 @@ _MESSAGE_CONFIRMATION_READY_JS = (
     "(arg) => {"
     + _MESSAGE_COMPOSER_INSPECT_JS
     + r"""
-        if (!arg.owner?.isConnected) return false;
-        const markers = Array.from(
-            arg.owner.querySelectorAll('[data-linkedin-mcp-confirmation]')
-        ).filter(
-            marker => marker.getAttribute('data-linkedin-mcp-confirmation') === arg.token
-        );
-        if (
-            markers.length !== 1 ||
-            markers[0].getAttribute('data-linkedin-mcp-invalid') !== 'false'
-        ) {
-            return false;
-        }
-        const composer = inspect(arg);
-        if (
-            composer.status !== 'valid' ||
-            composer.messageRoute === null ||
-            composer.owner !== arg.owner ||
-            composer.buttons.length !== 1 ||
-            composer.editor.getAttribute('data-linkedin-mcp-editor') !== arg.token
-        ) {
-            return false;
-        }
         const exactVisibleUnit = node => {
             if (!visible(node)) return false;
             const elements = [node, ...node.querySelectorAll('*')].filter(visible);
@@ -582,6 +567,68 @@ _MESSAGE_CONFIRMATION_READY_JS = (
                 )
             ).length === 1;
         };
+        // LinkedIn acknowledges a send by rendering a node whose event ID is
+        // a server message URN. In an open thread it inserts that node and
+        // removes its client-side placeholder; the first message of a new
+        // thread moves the route to /messaging/thread/<id>/ and remounts the
+        // whole conversation pane, composer included. Neither keeps the
+        // observed node or the pinned composer, so accept exactly one visible
+        // exact-text node carrying a server URN that was absent before submit,
+        // inside the conversation pane of the one composer the page now shows.
+        const serverAcknowledged = () => {
+            const marker = Array.from(
+                arg.owner?.querySelectorAll('[data-linkedin-mcp-confirmation]') || []
+            ).find(
+                node => node.getAttribute('data-linkedin-mcp-confirmation') === arg.token
+            );
+            if (!marker?.hasAttribute('data-linkedin-mcp-baseline')) return false;
+            let baselineUrns;
+            try {
+                baselineUrns = new Set(
+                    JSON.parse(marker?.getAttribute('data-linkedin-mcp-baseline'))
+                );
+            } catch {
+                return false;
+            }
+            const composer = inspect(arg);
+            if (composer.status !== 'valid' || composer.messageRoute === null) {
+                return false;
+            }
+            const scope = threadScope(composer.owner);
+            const acknowledged = Array.from(
+                scope.querySelectorAll('[data-view-name="message-list-item"]')
+            ).filter(node => {
+                const urn = (node.getAttribute('data-event-urn') || '').trim();
+                return urn.startsWith('urn:li:msg_message:') &&
+                    !baselineUrns.has(urn) &&
+                    exactVisibleUnit(node);
+            });
+            return new Set(
+                acknowledged.map(node => node.getAttribute('data-event-urn').trim())
+            ).size === 1 && acknowledged.length === 1;
+        };
+        if (!arg.owner?.isConnected) return serverAcknowledged();
+        const markers = Array.from(
+            arg.owner.querySelectorAll('[data-linkedin-mcp-confirmation]')
+        ).filter(
+            marker => marker.getAttribute('data-linkedin-mcp-confirmation') === arg.token
+        );
+        if (
+            markers.length !== 1 ||
+            markers[0].getAttribute('data-linkedin-mcp-invalid') !== 'false'
+        ) {
+            return serverAcknowledged();
+        }
+        const composer = inspect(arg);
+        if (
+            composer.status !== 'valid' ||
+            composer.messageRoute === null ||
+            composer.owner !== arg.owner ||
+            composer.buttons.length !== 1 ||
+            composer.editor.getAttribute('data-linkedin-mcp-editor') !== arg.token
+        ) {
+            return serverAcknowledged();
+        }
         const candidates = Array.from(
             threadScope(arg.owner).querySelectorAll('[data-linkedin-mcp-candidate]')
         ).filter(node =>
@@ -591,7 +638,7 @@ _MESSAGE_CONFIRMATION_READY_JS = (
             (node.getAttribute('data-event-urn') || '').trim() &&
             exactVisibleUnit(node)
         );
-        return candidates.length === 1;
+        return candidates.length === 1 || serverAcknowledged();
     }"""
 )
 
@@ -1371,13 +1418,18 @@ class MessageSender:
         owner: Any,
         confirmation: str,
     ) -> bool:
-        """Wait for one message-list node to gain a different opaque event ID.
+        """Wait for LinkedIn to acknowledge the submitted message in its thread.
 
-        The observer accepts only a node inserted after it was installed whose
-        exact visible message unit equals the typed text. That same connected
-        node must then change from one non-empty ``data-event-urn`` value to a
-        different non-empty value. Every timeout, remount, replacement or
-        ambiguity answers "not observed" because submission already happened.
+        Two signals count. The observer accepts a node inserted after it was
+        installed whose exact visible message unit equals the typed text and
+        which then changes from one non-empty ``data-event-urn`` value to a
+        different one. Otherwise the conversation pane of the one composer on
+        the page must hold exactly one visible exact-text node whose event ID
+        is a server message URN absent before submission: LinkedIn replaces
+        its client placeholder with that node, and the first message of a new
+        thread remounts the pane under /messaging/thread/<id>/. Every timeout
+        or ambiguity answers "not observed" because submission already
+        happened.
         """
         try:
             await self._page.wait_for_function(

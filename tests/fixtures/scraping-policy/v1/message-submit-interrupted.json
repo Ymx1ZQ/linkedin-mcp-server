@@ -256,7 +256,7 @@
       "call": "send_message",
       "kind": "evaluate",
       "operation": "message_confirmation_prepare",
-      "program_digest": "dfef1fd012bf",
+      "program_digest": "b880e1cb8bc0",
       "section": "message"
     },
     {
