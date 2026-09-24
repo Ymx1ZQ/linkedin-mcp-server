@@ -85,12 +85,16 @@ _PROFILE_MESSAGE_TARGET_JS = r"""() => {
     const main = document.querySelector('main');
     if (!main) return {status: 'unresolved'};
 
-    // The top card is the first visible <section> under <main> that carries
-    // both a profile-name heading and a compose action. It is no longer a
-    // direct child of <main> (LinkedIn wraps it in a div since September
-    // 2026), and the name moved from <h1> to <h2>, so neither position nor
-    // heading level can be assumed. Sections without a heading (sidebars,
-    // "people also viewed" rails) never qualify.
+    // The top card is the visible <section> under <main> that owns the
+    // profile-name heading. It is no longer a direct child of <main>
+    // (LinkedIn wraps it in a div since September 2026), and the name moved
+    // from <h1> to <h2>: the heading level is <h1> when the page has one,
+    // otherwise <h2>. The first section whose heading equals the name in the
+    // document title ("Name | LinkedIn") wins; without such a match, the
+    // first section with a heading does. The card is chosen by its name
+    // alone, never by the presence of a compose action, so a later card for
+    // another person (a "More profiles for you" rail) cannot stand in for a
+    // top card that shows no Message action.
     const ownHeadings = (section, tag) =>
         Array.from(section.querySelectorAll(tag)).filter(
             heading => visible(heading) && heading.closest('section') === section
@@ -99,19 +103,25 @@ _PROFILE_MESSAGE_TARGET_JS = r"""() => {
         Array.from(section.querySelectorAll('a[href*="/messaging/compose/"]')).filter(
             anchor => anchor.closest('section') === section
         );
-    let section = null;
-    let headings = [];
-    for (const candidate of Array.from(main.querySelectorAll('section'))) {
-        if (!visible(candidate) || ownComposeAnchors(candidate).length === 0) {
-            continue;
-        }
-        const found = ownHeadings(candidate, 'h1');
-        const named = found.length > 0 ? found : ownHeadings(candidate, 'h2');
-        if (named.length === 0) continue;
-        section = candidate;
-        headings = named;
-        break;
-    }
+    const nameTag = Array.from(main.querySelectorAll('h1')).some(visible)
+        ? 'h1'
+        : 'h2';
+    const titleMatch = /^(?:\(\d+\+?\)\s*)?(.+?)\s*\|\s*LinkedIn\s*$/.exec(
+        normalize(document.title)
+    );
+    const titleName = titleMatch ? titleMatch[1] : '';
+    const named = Array.from(main.querySelectorAll('section'))
+        .filter(visible)
+        .map(candidate => [candidate, ownHeadings(candidate, nameTag)])
+        .filter(([, found]) => found.length > 0);
+    const byTitle = titleName && named.find(([, found]) =>
+        found.some(
+            heading =>
+                normalize(heading.innerText || heading.textContent || '') ===
+                titleName
+        )
+    );
+    const [section, headings] = byTitle || named[0] || [null, []];
     // No qualifying section means the probe did not recognise the page,
     // not that the profile lacks a Message action. Report that as
     // unresolved (retry-safe) rather than unavailable, which would steer

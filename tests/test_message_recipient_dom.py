@@ -251,7 +251,8 @@ class TestProfileMessageTargetDom:
         # action is rendered twice for the same recipient (one hidden).
         await _set_composer_content(
             dom_page,
-            """<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><main>
+            """<!DOCTYPE html><html><head><meta charset="utf-8">
+            <title>Test User | LinkedIn</title></head><body><main>
               <div class="_70a6f2dc"><div><div>
                 <section><h2>Ads</h2><p>Sponsored</p></section>
                 <div><section>
@@ -362,6 +363,29 @@ class TestProfileMessageTargetDom:
                   Message
                 </a>
               </section></div>
+            </main></body></html>
+            """,
+        )
+
+        result = await dom_page.evaluate(_PROFILE_MESSAGE_TARGET_JS)
+
+        assert result["status"] == "unavailable"
+
+    async def test_rail_card_cannot_supply_missing_h2_top_card_action(self, dom_page):
+        # "More profiles for you" renders other people's cards with their own
+        # name heading and Message action after the top card.
+        await _set_composer_content(
+            dom_page,
+            """<!DOCTYPE html><html><head><meta charset="utf-8">
+            <title>Alice Example | LinkedIn</title></head><body><main>
+              <div><div><section><h2>Alice Example</h2></section></div>
+                <aside><section>
+                  <h2>Bob Other</h2>
+                  <a style="display:block" href="/messaging/compose/?recipient=BOB">
+                    Message
+                  </a>
+                </section></aside>
+              </div>
             </main></body></html>
             """,
         )
