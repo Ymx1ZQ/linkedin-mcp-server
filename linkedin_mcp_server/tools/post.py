@@ -139,13 +139,11 @@ def register_post_tools(
         title="React To Post",
         annotations={"destructiveHint": True, "openWorldHint": True},
         tags={"post", "actions"},
-        exclude_args=["extractor"],
     )
     async def react_to_post(
         post: str,
         ctx: Context,
         reaction: Reaction = "like",
-        extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
         React to one LinkedIn post, as the authenticated user.
@@ -181,9 +179,7 @@ def register_post_tools(
             is false can remove a reaction that did land.
         """
         try:
-            extractor = extractor or await get_ready_extractor(
-                ctx, tool_name="react_to_post"
-            )
+            extractor = await get_ready_extractor(ctx, tool_name="react_to_post")
             logger.info("Reacting to post %s with %s", post, reaction)
 
             await ctx.report_progress(progress=0, total=100, message="Opening post")
@@ -212,14 +208,12 @@ def register_post_tools(
         title="Comment On Post",
         annotations={"destructiveHint": True, "openWorldHint": True},
         tags={"post", "actions"},
-        exclude_args=["extractor"],
     )
     async def comment_on_post(
         post: str,
         comment: str,
         confirm_comment: bool,
         ctx: Context,
-        extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
         Publish a comment on one LinkedIn post, as the authenticated user.
@@ -264,9 +258,7 @@ def register_post_tools(
             if refusal is not None:
                 return refusal
 
-            extractor = extractor or await get_ready_extractor(
-                ctx, tool_name="comment_on_post"
-            )
+            extractor = await get_ready_extractor(ctx, tool_name="comment_on_post")
             logger.info(
                 "Commenting on post %s (confirm_comment=%s)", post, confirm_comment
             )
@@ -306,14 +298,12 @@ def register_post_tools(
         title="Repost Post",
         annotations={"destructiveHint": True, "openWorldHint": True},
         tags={"post", "actions"},
-        exclude_args=["extractor"],
     )
     async def repost_post(
         post: str,
         confirm_repost: bool,
         ctx: Context,
         commentary: str | None = None,
-        extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
         Reshare one LinkedIn post to this account's own feed.
@@ -359,9 +349,7 @@ def register_post_tools(
                 if refusal is not None:
                     return refusal
 
-            extractor = extractor or await get_ready_extractor(
-                ctx, tool_name="repost_post"
-            )
+            extractor = await get_ready_extractor(ctx, tool_name="repost_post")
             logger.info(
                 "Reposting %s (confirm_repost=%s, with_commentary=%s)",
                 post,

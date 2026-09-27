@@ -28,6 +28,50 @@
       "fastmcp": {
         "tags": [
           "actions",
+          "post"
+        ]
+      }
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true
+    },
+    "description": "Publish a comment on one LinkedIn post, as the authenticated user.\n\nThis is a write operation when confirm_comment is True, and it is public\nand attributed: the comment carries this account's name and can notify\nthe post's author and other commenters. Call it first with\nconfirm_comment=False to check that the post loads and offers a comment\neditor without typing anything.\n\nThe comment is confirmed by finding the exact text rendered inside that\npost afterwards. A ``comment_unconfirmed`` status means the submit was\ndispatched and the text never appeared, which is not the same as a\nfailure — open the post before retrying.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "comment": {
+          "description": "Text to publish. Newlines are allowed; every other control\ncharacter is rejected before a browser is touched.",
+          "type": "string"
+        },
+        "confirm_comment": {
+          "description": "Must be True to publish the comment",
+          "type": "boolean"
+        },
+        "post": {
+          "description": "Permalink of one post, in either shape ``references`` returns\nfor ``kind: \"feed_post\"``. See react_to_post for the accepted\nforms.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "post",
+        "comment",
+        "confirm_comment"
+      ],
+      "type": "object"
+    },
+    "name": "comment_on_post",
+    "outputSchema": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "title": "Comment On Post"
+  },
+  {
+    "_meta": {
+      "fastmcp": {
+        "tags": [
+          "actions",
           "person"
         ]
       }
@@ -538,6 +582,104 @@
     "_meta": {
       "fastmcp": {
         "tags": [
+          "actions",
+          "post"
+        ]
+      }
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true
+    },
+    "description": "React to one LinkedIn post, as the authenticated user.\n\nThis is a write operation and is publicly attributed: reactions are\nvisible on the post and can appear in other members' feeds. It takes no\nconfirmation flag because a reaction is the one engagement the owner can\nwithdraw from the same control that set it.\n\nReacting is never a toggle here. If this account has already reacted,\nthe tool returns ``already_reacted`` without clicking, because clicking a\npressed reaction control on LinkedIn removes the reaction rather than\nchanging it. To change or remove an existing reaction, do it in LinkedIn.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "post": {
+          "description": "Permalink of one post, in either shape ``references`` returns\nfor ``kind: \"feed_post\"`` — ``/feed/update/<urn>/`` or\n``/posts/<slug>``. An absolute URL on any locale subdomain and a\nbare ``urn:li:{ugcPost,share,activity}:<id>`` are accepted too.",
+          "type": "string"
+        },
+        "reaction": {
+          "default": "like",
+          "description": "Which reaction to add. One of like, celebrate, support,\nlove, insightful, funny. \"like\" clicks the post's own reaction\ncontrol directly; every other value has to open the reaction\npicker, which can refuse with ``reaction_picker_unavailable`` or\n``reaction_picker_changed`` if LinkedIn's picker is not the six\ncontrols this tool knows how to index.",
+          "enum": [
+            "like",
+            "celebrate",
+            "support",
+            "love",
+            "insightful",
+            "funny"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "post"
+      ],
+      "type": "object"
+    },
+    "name": "react_to_post",
+    "outputSchema": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "title": "React To Post"
+  },
+  {
+    "_meta": {
+      "fastmcp": {
+        "tags": [
+          "actions",
+          "post"
+        ]
+      }
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true
+    },
+    "description": "Reshare one LinkedIn post to this account's own feed.\n\nThis is a write operation when confirm_repost is True, and it publishes\nto this account's feed under its own name. Call it first with\nconfirm_repost=False to check that the post loads and offers a repost\ncontrol without opening any menu.\n\nOmit commentary for a bare repost, which publishes immediately once the\nmenu item is clicked. Pass commentary to repost with your own text,\nwhich opens LinkedIn's composer instead.\n\nWhich menu item reposts immediately is decided by position, so the tool\nrefuses with ``repost_menu_changed`` unless LinkedIn's repost menu is\nexactly the two items it knows. That refusal is deliberate: the wrong\nindex publishes to this account's feed.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "commentary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional text to publish above the reshared post.\nNewlines are allowed; every other control character is rejected\nbefore a browser is touched. Omit for a bare repost."
+        },
+        "confirm_repost": {
+          "description": "Must be True to publish the repost",
+          "type": "boolean"
+        },
+        "post": {
+          "description": "Permalink of one post, in either shape ``references`` returns\nfor ``kind: \"feed_post\"``. See react_to_post for the accepted\nforms.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "post",
+        "confirm_repost"
+      ],
+      "type": "object"
+    },
+    "name": "repost_post",
+    "outputSchema": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "title": "Repost Post"
+  },
+  {
+    "_meta": {
+      "fastmcp": {
+        "tags": [
           "company",
           "search"
         ]
@@ -865,7 +1007,7 @@
       "destructiveHint": true,
       "openWorldHint": true
     },
-    "description": "Compose and send a new message to a LinkedIn user.\n\nProfile-based targeting opens LinkedIn's compose flow. It is not a safe\nreply path for an existing recruiter/InMail or messaging thread: it may\ncreate a separate DM even after you inspect that thread with\nget_conversation or search_conversations. Those tools only read an\nexisting thread; they do not send a reply. Until a thread-targeted send\npath is available, do not treat profile-based send_message as a reply.\n\nThe recipient must be directly messageable from the profile page. If\nLinkedIn does not expose a normal Message action, use connect_with_person\nfirst, then retry send_message only after the connection request is\naccepted. Recipient authorization comes from validating one\nrecipient-specific Message action carrying the target URN, then following\nits browser navigation and pinning the exact final route. Visible profile\nlinks or recipient URNs in the composer are optional corroboration; any\ncontradiction fails closed. No Voyager or other private API is used. This\nis a write operation when confirm_send is True.",
+    "description": "Compose and send a new message to a LinkedIn user.\n\nProfile-based targeting opens LinkedIn's compose flow. It is not a safe\nreply path for an existing recruiter/InMail or messaging thread: it may\ncreate a separate DM even after you inspect that thread with\nget_conversation or search_conversations. Those tools only read an\nexisting thread; they do not send a reply. Until a thread-targeted send\npath is available, do not treat profile-based send_message as a reply.\n\nThe recipient must be directly messageable from the profile page. If\nLinkedIn does not expose a normal Message action, use connect_with_person\nfirst, then retry send_message only after the connection request is\naccepted. A ``status`` of ``enter_to_send_enabled`` means the account\nhas LinkedIn's \"Press Enter to Send\" preference on, which hides the Send\nbutton; relay the returned instructions to the user, who switches it to\n\"Click Send to send\" before retrying. The dry run (confirm_send False)\nreports it too. Recipient authorization comes from validating one\nrecipient-specific Message action carrying the target URN, then following\nits browser navigation and pinning the exact final route. Visible profile\nlinks or recipient URNs in the composer are optional corroboration; any\ncontradiction fails closed. No Voyager or other private API is used. This\nis a write operation when confirm_send is True.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
